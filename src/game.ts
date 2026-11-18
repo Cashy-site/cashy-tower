@@ -128,6 +128,10 @@ export class Game implements PlayerEvents {
   startDesign = 0;
   /** Where Records and Settings return to. */
   private shareRequested = false;
+  /** The leaderboard's public tag for the last run (e.g. T7K2Q), once it's back. Goes in the X post. */
+  runTag = "";
+  /** Counts runs, so a slow leaderboard reply never pops up over the next run. */
+  private runNumber = 0;
   private back: "title" | "over" | "won" = "title";
   private nextMilestone = MILESTONE_EVERY;
 
@@ -209,8 +213,14 @@ export class Game implements PlayerEvents {
   /** The pre-written post. Combos are left out when there were none. */
   /** The pre-written post (Base City brief, update 2). Well under X's 280 characters. */
   get shareText() {
+    return this.shareTextFor(this.runTag);
+  }
+
+  /** The run tag lets the team match a prize post to its run on the leaderboard. */
+  shareTextFor(tag: string) {
     const floors = `${this.highest} floor${this.highest === 1 ? "" : "s"}`;
-    return `I climbed ${floors} in Cashy Tower 🏙️\n\nBuilt on @base 🔵\nCash in. NVDA out. @feeldotcash\n\n${SITE_URL}/arcade/`;
+    const run = tag ? ` (run #${tag})` : "";
+    return `I climbed ${floors} and scored ${this.score.toLocaleString("en-GB")} in Cashy Tower 🏙️${run}\n\nBuilt on @base 🔵\nCash in. NVDA out. @feeldotcash\n\n${SITE_URL}/arcade/cashy-tower/`;
   }
 
   /** Hands over the X link once after Share on X is picked, for the page to open. */
@@ -277,6 +287,9 @@ export class Game implements PlayerEvents {
     this.winTime = 0;
     this.nextMilestone = MILESTONE_EVERY;
     this.state = "playing";
+    this.runTag = "";
+    this.runNumber++;
+    window.CashyLB?.start("tower");
   }
 
   private step(dt: number) {
@@ -530,6 +543,20 @@ export class Game implements PlayerEvents {
       this.lastRunTime = Date.now();
       this.records = addRecord(this.records, { score: this.score, floor: this.highest, cash: this.cash, combo: this.bestComboRun, t: this.lastRunTime });
     }
+    this.submitRun();
+  }
+
+  /** Sends the run to the leaderboard and shows the result card. The game never waits on it. */
+  private submitRun() {
+    const lb = window.CashyLB;
+    if (!lb) return;
+    const run = this.runNumber;
+    const stats = { score: this.score, floor: this.highest, combo: this.bestComboRun, cash: this.cash };
+    lb.finish("tower", stats).then((result) => {
+      if (run !== this.runNumber || (this.state !== "over" && this.state !== "won")) return;
+      if (typeof result.tag === "string") this.runTag = result.tag;
+      lb.show(result, { game: "tower", share: (tag) => this.shareTextFor(tag), label: { floor: "floors", combo: "combo" } });
+    });
   }
 
   /** The ending never stops: embers rise, cash and confetti rain, and fireworks go off every half second. */
